@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soil Temperature & GDD</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --soil-dark: #2b1d0e; --clay-red: #c4622d; --clay-light: #e07b42;
+      --cream: #f5ead8; --leaf: #6b8f3e; --leaf-light: #8ab85a;
+      --sky: #8ab4c9; --forecast: #a0c4e8; --rain: #5b9bd5; --rain-light: #7ab8f5;
+    }
+    body { font-family: 'DM Mono', monospace; background-color: var(--soil-dark); color: var(--cream); min-height: 100vh; overflow-x: hidden; position: relative; }
+    body::before { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(180deg, transparent 0px, transparent 3px, rgba(255,255,255,0.015) 3px, rgba(255,255,255,0.015) 4px), linear-gradient(180deg, #1a0c05 0%, #2b1d0e 15%, #3d2a18 35%, #4a3728 55%, #3a2a1a 75%, #2b1d0e 100%); z-index: 0; }
+    .container { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 3rem 2rem 4rem; }
+    header { margin-bottom: 2.5rem; animation: fadeDown 0.8s ease both; }
+    .location-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(196,98,45,0.2); border: 1px solid var(--clay-red); border-radius: 2px; padding: 0.3rem 0.8rem; font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--clay-light); margin-bottom: 1rem; }
+    h1 { font-family: 'Playfair Display', serif; font-size: clamp(2rem,5vw,3.5rem); font-weight: 700; line-height: 1.1; color: var(--cream); letter-spacing: -0.02em; }
+    .subtitle { margin-top: 0.5rem; font-size: 0.75rem; letter-spacing: 0.1em; color: #a08060; }
+    .controls-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1.5rem; margin-top: 1.5rem; }
+    .control-group { display: flex; flex-direction: column; }
+    .ctrl-label { font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: #a08060; margin-bottom: 0.45rem; }
+    .input-row { display: flex; align-items: stretch; }
+    .ctrl-input { background: rgba(0,0,0,0.35); border: 1px solid rgba(196,98,45,0.45); border-right: none; border-radius: 3px 0 0 3px; color: var(--cream); font-family: 'DM Mono', monospace; font-size: 1rem; letter-spacing: 0.1em; padding: 0.6rem 1rem; outline: none; transition: border-color 0.2s; }
+    .ctrl-input.zip-field { width: 140px; } .ctrl-input.base-field { width: 90px; }
+    .ctrl-input::placeholder { color: #7a5c3e; }
+    .ctrl-input:focus { border-color: var(--clay-light); }
+    .ctrl-input.error { border-color: #c44; animation: shake 0.35s ease; }
+    .ctrl-btn { background: var(--clay-red); border: 1px solid var(--clay-red); border-radius: 0 3px 3px 0; color: var(--cream); cursor: pointer; font-family: 'DM Mono', monospace; font-size: 0.72rem; letter-spacing: 0.1em; padding: 0.6rem 1.1rem; text-transform: uppercase; transition: background 0.2s; white-space: nowrap; }
+    .ctrl-btn:hover { background: var(--clay-light); } .ctrl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .base-suffix { background: rgba(0,0,0,0.25); border: 1px solid rgba(196,98,45,0.45); border-left: none; border-radius: 0 3px 3px 0; color: #a08060; font-size: 0.8rem; padding: 0.6rem 0.75rem; display: flex; align-items: center; }
+    .ctrl-error { font-size: 0.62rem; color: #e06060; margin-top: 0.35rem; min-height: 0.9rem; }
+    .toggle-wrap { display: flex; flex-direction: column; }
+    .toggle-row { display: flex; align-items: center; background: rgba(0,0,0,0.35); border: 1px solid rgba(196,98,45,0.45); border-radius: 3px; overflow: hidden; }
+    .toggle-btn { flex: 1; background: transparent; border: none; color: #a08060; cursor: pointer; font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.08em; padding: 0.62rem 1rem; text-transform: uppercase; transition: background 0.2s, color 0.2s; white-space: nowrap; }
+    .toggle-btn.active { background: var(--clay-red); color: var(--cream); }
+    .toggle-btn:first-child { border-right: 1px solid rgba(196,98,45,0.45); }
+    .stat-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.25rem; margin-bottom: 2rem; animation: fadeUp 0.9s 0.2s ease both; }
+    .stat-card { border-radius: 4px; padding: 1.75rem 1.5rem 1.5rem; position: relative; overflow: hidden; }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+    .stat-card.temp-card { background: linear-gradient(135deg, rgba(196,98,45,0.15) 0%, rgba(74,55,40,0.4) 100%); border: 1px solid rgba(196,98,45,0.4); }
+    .stat-card.temp-card::before { background: linear-gradient(90deg, var(--clay-red), var(--clay-light), transparent); }
+    .stat-card.gdd-card { background: linear-gradient(135deg, rgba(107,143,62,0.15) 0%, rgba(50,70,30,0.4) 100%); border: 1px solid rgba(107,143,62,0.45); }
+    .stat-card.gdd-card::before { background: linear-gradient(90deg, var(--leaf), var(--leaf-light), transparent); }
+    .stat-card.rain-card { background: linear-gradient(135deg, rgba(91,155,213,0.15) 0%, rgba(30,55,90,0.4) 100%); border: 1px solid rgba(91,155,213,0.4); }
+    .stat-card.rain-card::before { background: linear-gradient(90deg, var(--rain), var(--rain-light), transparent); }
+    .stat-label { font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; color: #a08060; margin-bottom: 0.4rem; }
+    .stat-value { font-family: 'Playfair Display', serif; font-size: clamp(2rem,4vw,3.2rem); font-weight: 400; line-height: 1; }
+    .temp-card .stat-value { color: var(--clay-light); }
+    .gdd-card .stat-value { color: var(--leaf-light); }
+    .rain-card .stat-value { color: var(--rain-light); }
+    .stat-value sup { font-size: 0.32em; vertical-align: super; color: var(--cream); opacity: 0.65; }
+    .stat-meta { font-size: 0.65rem; color: #a08060; margin-top: 0.45rem; line-height: 1.55; }
+    .stat-sub { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
+    .stat-pill { font-size: 0.56rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.2rem 0.55rem; border-radius: 2px; }
+    .temp-card .stat-pill { background: rgba(196,98,45,0.2); color: var(--clay-light); border: 1px solid rgba(196,98,45,0.35); }
+    .gdd-card .stat-pill { background: rgba(107,143,62,0.2); color: var(--leaf-light); border: 1px solid rgba(107,143,62,0.35); }
+    .rain-card .stat-pill { background: rgba(91,155,213,0.2); color: var(--rain-light); border: 1px solid rgba(91,155,213,0.35); }
+    .forecast-badge { display: inline-flex; align-items: center; background: rgba(100,160,200,0.12); border: 1px solid rgba(100,160,200,0.35); border-radius: 2px; padding: 0.15rem 0.55rem; font-size: 0.56rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--forecast); }
+    .air-badge { display: inline-flex; align-items: center; background: rgba(138,180,201,0.15); border: 1px solid rgba(138,180,201,0.4); border-radius: 2px; padding: 0.15rem 0.55rem; font-size: 0.56rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--sky); }
+    .section { margin-bottom: 2rem; animation: fadeUp 1s 0.4s ease both; }
+    .section-header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.2rem; padding-bottom: 0.6rem; border-bottom: 1px solid rgba(196,98,45,0.25); }
+    .section-header.gdd-header { border-bottom-color: rgba(107,143,62,0.3); }
+    .section-header.rain-header { border-bottom-color: rgba(91,155,213,0.3); }
+    .section-title { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: var(--cream); }
+    .section-sub { font-size: 0.65rem; letter-spacing: 0.1em; color: #a08060; text-transform: uppercase; }
+    .chart-wrap { background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.07); border-radius: 4px; padding: 1.5rem; }
+    canvas { display: block; width: 100% !important; }
+    .days-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
+    .day-card { background: rgba(74,55,40,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; padding: 1rem 0.75rem; text-align: center; transition: border-color 0.2s, transform 0.2s; cursor: pointer; user-select: none; }
+    .day-card:hover { border-color: var(--clay-red); transform: translateY(-2px); }
+    .day-card.today { border-color: rgba(196,98,45,0.6); background: rgba(196,98,45,0.15); }
+    .day-card.selected { border-color: var(--clay-light) !important; background: rgba(224,123,66,0.22) !important; transform: translateY(-3px); box-shadow: 0 4px 20px rgba(196,98,45,0.3); }
+    .day-name { font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: #a08060; margin-bottom: 0.45rem; }
+    .day-soil { font-family: 'Playfair Display', serif; font-size: 1.35rem; color: var(--clay-light); line-height: 1; }
+    .day-soil-min { font-size: 0.65rem; color: #e07b42; margin-top: 0.15rem; }
+    .day-air { font-size: 0.65rem; color: var(--sky); margin-top: 0.25rem; }
+    .day-gdd { font-size: 0.62rem; color: var(--leaf-light); margin-top: 0.3rem; }
+    .day-unit { font-size: 0.52rem; color: #a08060; margin-top: 0.2rem; }
+    .info-note { font-size: 0.65rem; color: #7a9060; background: rgba(107,143,62,0.08); border: 1px solid rgba(107,143,62,0.2); border-radius: 3px; padding: 0.6rem 1rem; margin-bottom: 1.5rem; line-height: 1.6; }
+    .info-note strong { color: var(--leaf-light); }
+    .info-note.rain-note { color: #5a7aaa; background: rgba(91,155,213,0.08); border-color: rgba(91,155,213,0.2); }
+    .info-note.rain-note strong { color: var(--rain-light); }
+    .status { text-align: center; padding: 3rem; color: #a08060; font-size: 0.8rem; letter-spacing: 0.1em; }
+    .loader { width: 24px; height: 24px; border: 2px solid rgba(196,98,45,0.3); border-top-color: var(--clay-red); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1rem; }
+    .progress-wrap { width: 260px; margin: 1.2rem auto 0; background: rgba(255,255,255,0.07); border-radius: 99px; height: 4px; overflow: hidden; }
+    .progress-bar { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--clay-red), var(--clay-light)); transition: width 0.5s ease; width: 0%; }
+    .progress-steps { margin-top: 0.9rem; font-size: 0.62rem; letter-spacing: 0.1em; color: #7a5c3e; min-height: 1rem; }
+    .progress-steps span { color: var(--clay-light); }
+    .error-box { color: #e07b42; background: rgba(196,98,45,0.1); border: 1px solid rgba(196,98,45,0.3); border-radius: 4px; padding: 1.2rem 1.5rem; font-size: 0.78rem; line-height: 1.8; }
+    .retry-btn { display: inline-block; margin-top: 1rem; background: var(--clay-red); border: none; border-radius: 3px; color: var(--cream); cursor: pointer; font-family: 'DM Mono', monospace; font-size: 0.72rem; letter-spacing: 0.1em; padding: 0.5rem 1.2rem; text-transform: uppercase; }
+    .retry-btn:hover { background: var(--clay-light); }
+    .timestamp { text-align: right; font-size: 0.6rem; color: #6b5040; letter-spacing: 0.08em; margin-top: 2rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeDown { from { opacity:0; transform:translateY(-20px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
+    @media (max-width: 750px) { .stat-row { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 500px) { .stat-row { grid-template-columns: 1fr; } .days-grid { grid-template-columns: repeat(3,1fr); } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="location-badge" id="locationBadge">◈ &nbsp;Washington, DC USA · 38.8977°N, 77.03636°W</div>
+    <h1>Soil Temperature & GDD</h1>
+    <p class="subtitle">// Soil temp at 6 cm · GDD (air or soil) · Rainfall · Open-Meteo · observed + forecast</p>
+    <div class="controls-row">
+      <div class="control-group">
+        <span class="ctrl-label">// ZIP code</span>
+        <div class="input-row">
+          <input class="ctrl-input zip-field" id="zipInput" type="text" inputmode="numeric" maxlength="5" placeholder="e.g. 20500" value="20500" autocomplete="postal-code" />
+          <button class="ctrl-btn" id="zipBtn" onclick="handleZip()">Search</button>
+        </div>
+        <div class="ctrl-error" id="zipError"></div>
+      </div>
+      <div class="control-group">
+        <span class="ctrl-label">// GDD base temperature</span>
+        <div class="input-row">
+          <input class="ctrl-input base-field" id="baseInput" type="number" min="-20" max="100" step="1" value="50" />
+          <span class="base-suffix">°F</span>
+        </div>
+        <div class="ctrl-error" id="baseError"></div>
+      </div>
+      <div class="toggle-wrap">
+        <span class="ctrl-label">// GDD method</span>
+        <div class="toggle-row">
+          <button class="toggle-btn active" id="btnAir" onclick="setGDDMode('air')">Air Temp</button>
+          <button class="toggle-btn" id="btnSoil" onclick="setGDDMode('soil')">Soil Temp</button>
+        </div>
+      </div>
+    </div>
+  </header>
+  <div id="app">
+    <div class="status">
+      <div class="loader"></div>Loading data…
+      <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-steps" id="progressSteps">Connecting…</div>
+    </div>
+  </div>
+  <div class="timestamp" id="timestamp"></div>
+</div><script>
+  const API_TIMEOUT_MS = 12000;
+  let currentLat = 38.8977, currentLon = -77.03636;
+  let currentLocation = { city: 'Washington', state: 'DC', zip: '20500' };
+  let baseTempF = 50;
+  let gddMode = 'air';
+  let byDay = {};
+  let hourlyChart = null, historyChart = null, gddChart = null, rainChart = null;
+  let cachedData = null;
+
+  const cToF  = c => +(c * 9/5 + 32).toFixed(1);
+  const fmt1  = v => +v.toFixed(1);
+  const calcGDD = (maxF, minF, base) => Math.max(0, (maxF + minF) / 2 - base);
+
+  function setGDDMode(mode) {
+    gddMode = mode;
+    document.getElementById('btnAir').classList.toggle('active', mode === 'air');
+    document.getElementById('btnSoil').classList.toggle('active', mode === 'soil');
+    if (cachedData) renderAll(cachedData);
+  }
+
+  function setProgress(pct, msg) {
+    const bar = document.getElementById('progressBar'), steps = document.getElementById('progressSteps');
+    if (bar) bar.style.width = pct + '%';
+    if (steps) steps.innerHTML = msg;
+  }
+
+  function showLoader() {
+    document.getElementById('app').innerHTML = `
+      <div class="status"><div class="loader"></div>Loading data…
+        <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="progress-steps" id="progressSteps">Connecting…</div>
+      </div>`;
+  }
+
+  function fetchWithTimeout(url, ms = API_TIMEOUT_MS) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
+  }
+
+  async function resolveZip(zip) {
+    const r = await fetchWithTimeout(`https://api.zippopotam.us/us/${zip}`);
+    if (r.status === 404) throw new Error(`ZIP code ${zip} not found.`);
+    if (!r.ok) throw new Error(`ZIP lookup failed (HTTP ${r.status}).`);
+    const d = await r.json(), p = d.places[0];
+    return { lat: +p.latitude, lon: +p.longitude, city: p['place name'], state: p['state abbreviation'], zip };
+  }
+
+  async function handleZip() {
+    const inp = document.getElementById('zipInput'), btn = document.getElementById('zipBtn'), err = document.getElementById('zipError');
+    const zip = inp.value.trim(); err.textContent = ''; inp.classList.remove('error');
+    if (!/^\d{5}$/.test(zip)) { inp.classList.add('error'); err.textContent = 'Please enter a valid 5-digit US ZIP code.'; setTimeout(() => inp.classList.remove('error'), 400); return; }
+    btn.disabled = true; btn.textContent = 'Loading…';
+    try { const loc = await resolveZip(zip); currentLat = loc.lat; currentLon = loc.lon; currentLocation = loc; await loadAndRender(); }
+    catch (e) { inp.classList.add('error'); err.textContent = e.message; setTimeout(() => inp.classList.remove('error'), 400); }
+    finally { btn.disabled = false; btn.textContent = 'Search'; }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('zipInput').addEventListener('keydown', e => { if (e.key === 'Enter') handleZip(); });
+    document.getElementById('baseInput').addEventListener('change', () => {
+      const v = parseFloat(document.getElementById('baseInput').value);
+      const err = document.getElementById('baseError');
+      if (isNaN(v) || v < -20 || v > 100) { err.textContent = 'Enter a base temp between -20 and 100 °F.'; return; }
+      err.textContent = ''; baseTempF = v;
+      if (cachedData) renderAll(cachedData);
+      else if (Object.keys(byDay).length > 0) loadAndRender();
+    });
+  });
+
+  async function fetchSoilHourly(lat, lon) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=soil_temperature_6cm&timezone=auto&past_days=6&forecast_days=1`;
+    const r = await fetchWithTimeout(url);
+    if (!r.ok) throw new Error(`Soil API HTTP ${r.status}`);
+    return r.json();
+  }
+
+  async function fetchAirAndRain(lat, lon) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&past_days=6&forecast_days=5`;
+    const r = await fetchWithTimeout(url);
+    if (!r.ok) throw new Error(`Air/Rain API HTTP ${r.status}`);
+    return r.json();
+  }
+
+  async function fetchYearData(lat, lon) {
+    const year = new Date().getFullYear();
+    const yd = new Date(); yd.setDate(yd.getDate() - 1);
+    const end = yd.toLocaleDateString('en-CA');
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,soil_temperature_0_to_7cm_mean&temperature_unit=fahrenheit&timezone=auto&start_date=${year}-01-01&end_date=${end}`;
+    const r = await fetchWithTimeout(url);
+    if (!r.ok) throw new Error(`Archive API HTTP ${r.status}`);
+    return r.json();
+  }
+
+  async function fetchClimatology(lat, lon) {
+    const today = new Date(), year = today.getFullYear();
+    const results = await Promise.all([year-1, year-2, year-3].map(py => {
+      const s = new Date(today); s.setFullYear(py);
+      const e = new Date(s); e.setDate(e.getDate() + 44);
+      const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&start_date=${s.toLocaleDateString('en-CA')}&end_date=${e.toLocaleDateString('en-CA')}`;
+      return fetchWithTimeout(url).then(r => r.ok ? r.json() : null).catch(() => null);
+    }));
+    const byOffset = {};
+    results.forEach(res => {
+      if (!res?.daily?.time) return;
+      res.daily.time.forEach((_, i) => {
+        const mx = res.daily.temperature_2m_max[i], mn = res.daily.temperature_2m_min[i];
+        if (mx == null || mn == null) return;
+        if (!byOffset[i]) byOffset[i] = [];
+        byOffset[i].push((mx + mn) / 2);
+      });
+    });
+    return Array.from({length:45}, (_, i) => {
+      const v = byOffset[i] || [];
+      return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
+    });
+  }
+
+  async function fetchRecentArchive(lat, lon) {
+    const end = new Date(); end.setDate(end.getDate()-1);
+    const start = new Date(end); start.setDate(start.getDate()-13);
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&start_date=${start.toLocaleDateString('en-CA')}&end_date=${end.toLocaleDateString('en-CA')}`;
+    const r = await fetchWithTimeout(url);
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  const strDate = t => t.slice(0,10);
+  const strHour = t => parseInt(t.slice(11,13),10);
+  const todayStr = () => new Date().toLocaleDateString('en-CA', {timeZone:'America/New_York'});
+  const addDays = (ds, n) => { const d = new Date(ds+'T12:00:00'); d.setDate(d.getDate()+n); return d.toLocaleDateString('en-CA'); };
+  const friendlyLabel = ds => ds === todayStr() ? 'Today' : new Date(ds+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  const shortLabel = ds => new Date(ds+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const hourLabel = h => h===0?'12 am':h<12?`${h} am`:h===12?'12 pm':`${h-12} pm`;
+
+  function processRecent(soilJson, airRainJson) {
+    const times = soilJson.hourly.time;
+    const soilRawC = soilJson.hourly.soil_temperature_6cm;
+    const airMaxByDay = {}, airMinByDay = {}, rainByDay = {};
+    const forecastDates = new Set();
+    if (airRainJson?.daily?.time) {
+      const today = todayStr();
+      airRainJson.daily.time.forEach((d, i) => {
+        airMaxByDay[d] = airRainJson.daily.temperature_2m_max[i];
+        airMinByDay[d] = airRainJson.daily.temperature_2m_min[i];
+        rainByDay[d] = airRainJson.daily.precipitation_sum[i];
+        if (d > today) forecastDates.add(d);
+      });
+    }
+    const today = todayStr();
+    const nowH = parseInt(new Date().toLocaleTimeString('en-US',{timeZone:'America/New_York',hour12:false,hour:'2-digit'}),10);
+    byDay = {};
+    times.forEach((t,i) => {
+      if (soilRawC[i] == null) return;
+      const d = strDate(t);
+      if (!byDay[d]) byDay[d] = [];
+      byDay[d].push({ h: strHour(t), soilC: soilRawC[i] });
+    });
+    const sortedDays = Object.keys(byDay).sort();
+    const days = sortedDays.map(d => {
+      const vals = byDay[d].map(e => e.soilC);
+      const soilMaxC = Math.max(...vals), soilMinC = Math.min(...vals);
+      const airMaxF = airMaxByDay[d] ?? null, airMinF = airMinByDay[d] ?? null;
+      const hasAir = airMaxF != null && airMinF != null;
+      const airGDD = hasAir ? calcGDD(airMaxF, airMinF, baseTempF) : null;
+      const soilGDD = calcGDD(cToF(soilMaxC), cToF(soilMinC), baseTempF);
+      return { dateStr:d, label:friendlyLabel(d), soilMaxC, soilMinC, airMaxF, airMinF, hasAir, airGDD, soilGDD };
+    });
+    let currentSoilC = null;
+    if (byDay[today]) {
+      let best = Infinity;
+      byDay[today].forEach(e => { const diff=Math.abs(e.h-nowH); if(diff<best){best=diff; currentSoilC=e.soilC;} });
+    }
+    if (currentSoilC == null && sortedDays.length) {
+      const last = byDay[sortedDays[sortedDays.length-1]];
+      currentSoilC = last[last.length-1].soilC;
+    }
+    const todayDay = days.find(d => d.dateStr === today);
+    const todayEntries = (byDay[today]||[]).sort((a,b)=>a.h-b.h);
+    const allDates = airRainJson?.daily?.time || [];
+    const rainData = allDates.map(d => ({
+      dateStr: d, label: shortLabel(d),
+      rain: rainByDay[d] ?? 0, isForecast: forecastDates.has(d)
+    }));
+    const sevenDayTotal = rainData.filter(r => !r.isForecast).slice(-7).reduce((s,r)=>s+(r.rain||0),0);
+    const forecastTotal = rainData.filter(r => r.isForecast).reduce((s,r)=>s+(r.rain||0),0);
+    return {
+      currentSoilC, days,
+      todayLabels: todayEntries.map(e => hourLabel(e.h)),
+      todaySoilF: todayEntries.map(e => cToF(e.soilC)),
+      todayAirGDD: todayDay?.airGDD ?? null,
+      todaySoilGDD: todayDay?.soilGDD ?? null,
+      todayAirMaxF: todayDay?.airMaxF ?? null,
+      todayAirMinF: todayDay?.airMinF ?? null,
+      rainData, sevenDayTotal: fmt1(sevenDayTotal), forecastTotal: fmt1(forecastTotal),
+    };
+  }
+
+  function processYearGDD(json, mode) {
+    if (!json?.daily?.time) return { gddDates:[], gddDaily:[], tGDD:[] };
+    const dates=json.daily.time;
+    const airMx=json.daily.temperature_2m_max||[], airMn=json.daily.temperature_2m_min||[];
+    const soilMean=json.daily.soil_temperature_0_to_7cm_mean||[];
+    let cum=0; const gddDates=[],gddDaily=[],tGDD=[];
+    dates.forEach((d,i) => {
+      let gdd;
+      if (mode === 'soil') {
+        const sm = soilMean[i];
+        if (sm == null) return;
+        gdd = Math.max(0, cToF(sm) - baseTempF);
+      } else {
+        if (airMx[i]==null||airMn[i]==null) return;
+        gdd = calcGDD(airMx[i], airMn[i], baseTempF);
+      }
+      cum += gdd;
+      gddDates.push(d); gddDaily.push(fmt1(gdd)); tGDD.push(fmt1(cum));
+    });
+    return {gddDates,gddDaily,tGDD};
+  }
+
+  function buildForecast(climMeansF, recentArchiveJson, yearData) {
+    let biasF = 0;
+    if (recentArchiveJson?.daily?.time) {
+      const mx=recentArchiveJson.daily.temperature_2m_max||[], mn=recentArchiveJson.daily.temperature_2m_min||[];
+      const means = mx.map((v,i)=>(v!=null&&mn[i]!=null)?(v+mn[i])/2:null).filter(v=>v!=null);
+      if (means.length && climMeansF[0]!=null) {
+        const obs = means.reduce((a,b)=>a+b,0)/means.length;
+        biasF = Math.max(-8, Math.min(8, obs - (climMeansF[0]??climMeansF.find(v=>v!=null))));
+      }
+    }
+    const today = todayStr();
+    const forecastDays = Array.from({length:45},(_,i) => {
+      const dateStr=addDays(today,i+1), clim=climMeansF[i];
+      if (clim==null) return null;
+      const predMeanF = clim + biasF*Math.max(0,1-i/30);
+      return { dateStr, label:shortLabel(dateStr), predMeanF, predGDD:Math.max(0,predMeanF-baseTempF) };
+    }).filter(Boolean);
+    let cum = yearData.tGDD.length ? yearData.tGDD[yearData.tGDD.length-1] : 0;
+    const forecastTGDD = forecastDays.map(d => { cum+=d.predGDD; return fmt1(cum); });
+    return {forecastDays, forecastTGDD};
+  }
+
+  function renderAll(data) {
+    const { recentData, yearJson, forecastData } = data;
+    const yearData = processYearGDD(yearJson, gddMode);
+    const { forecastDays, forecastTGDD } = forecastData(yearData);
+    const {currentSoilC, days, todayLabels, todaySoilF, todayAirGDD, todaySoilGDD, todayAirMaxF, todayAirMinF, rainData, sevenDayTotal, forecastTotal} = recentData;
+    const {gddDates, gddDaily, tGDD} = yearData;
+    const loc=currentLocation, year=new Date().getFullYear();
+    const soilF = cToF(currentSoilC);
+    const todayGDD = gddMode === 'air' ? todayAirGDD : todaySoilGDD;
+    const gddDisp = todayGDD!=null ? todayGDD.toFixed(1) : '—';
+    const latestTGDD = tGDD.length ? tGDD[tGDD.length-1] : 0;
+    const projectedTGDD = forecastTGDD.length ? forecastTGDD[forecastTGDD.length-1] : latestTGDD;
+    const modeLabel = gddMode === 'air' ? 'Air Temp Method' : 'Soil Temp Method';
+    const modeNote = gddMode === 'air'
+      ? `Air: <strong style="color:var(--sky)">${todayAirMaxF!=null?todayAirMaxF.toFixed(0):'—'}° / ${todayAirMinF!=null?todayAirMinF.toFixed(0):'—'}°F</strong> &nbsp;·&nbsp; `
+      : `Soil: <strong style="color:var(--clay-light)">${soilF}°F</strong> &nbsp;·&nbsp; `;
+    const infoMsg = gddMode === 'air'
+      ? `ℹ &nbsp;<strong>GDD from air temperature</strong> — matches GreenCast and standard pest &amp; disease models.`
+      : `ℹ &nbsp;<strong>GDD from soil temperature</strong> — useful for germination timing. Numbers will differ from GreenCast.`;
+
+    document.getElementById('locationBadge').innerHTML =
+      `◈ &nbsp;${loc.city}, ${loc.state} · ${currentLat.toFixed(4)}°N, ${Math.abs(currentLon).toFixed(4)}°W`;
+    [hourlyChart,historyChart,gddChart,rainChart].forEach(c=>{if(c)c.destroy();});
+    hourlyChart=historyChart=gddChart=rainChart=null;
+
+    document.getElementById('app').innerHTML = `
+      <div class="info-note">${infoMsg}</div>
+      <div class="stat-row">
+        <div class="stat-card temp-card">
+          <div class="stat-label">// Current Soil Temperature</div>
+          <div class="stat-value">${soilF}<sup>°F</sup></div>
+          <div class="stat-meta">${currentSoilC.toFixed(1)}°C &nbsp;·&nbsp; ${loc.city}, ${loc.state} (${loc.zip})</div>
+          <div class="stat-sub"><span class="stat-pill">6 cm depth</span></div>
+        </div>
+        <div class="stat-card gdd-card">
+          <div class="stat-label">// Today's GDD Value</div>
+          <div class="stat-value">${gddDisp}<sup>GDD</sup></div>
+          <div class="stat-meta">${modeNote}Base ${baseTempF}°F<br>
+            YTD ${year}: <strong style="color:var(--leaf-light)">${latestTGDD.toFixed(1)}</strong> &nbsp;·&nbsp;
+            +45 Day Proj: <strong style="color:var(--forecast)">${projectedTGDD.toFixed(1)}</strong>
+          </div>
+          <div class="stat-sub">
+            <span class="stat-pill">${modeLabel}</span>
+            ${gddMode==='air'?'<span class="air-badge">▸ matches GreenCast</span>':''}
+            <span class="forecast-badge">▸ 45-day forecast</span>
+          </div>
+        </div>
+        <div class="stat-card rain-card">
+          <div class="stat-label">// 7-Day Rainfall Total</div>
+          <div class="stat-value">${sevenDayTotal}<sup>in</sup></div>
+          <div class="stat-meta">Next 5-day forecast: <strong style="color:var(--rain-light)">${forecastTotal} in</strong></div>
+          <div class="stat-sub"><span class="stat-pill">inches · observed + forecast</span></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title" id="hourlyTitle">Today's Soil Temperature (hourly)</span>
+          <span class="section-sub">Hourly · °F · 6 cm depth</span>
+        </div>
+        <div class="chart-wrap"><canvas id="todayChart" height="200"></canvas></div>
+      </div>
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Past 5 Days</span>
+          <span class="section-sub">Soil temp · Air temp · GDD</span>
+        </div>
+        <div class="days-grid">
+          ${days.slice(-5).map(d=>`
+            <div class="day-card${d.label==='Today'?' today':''}" data-date="${d.dateStr}">
+              <div class="day-name">${d.label}</div>
+              <div class="day-soil">${cToF(d.soilMaxC)}°</div>
+              <div class="day-soil-min">↓ ${cToF(d.soilMinC)}° soil</div>
+              ${d.hasAir?`<div class="day-air">☁ ${d.airMaxF.toFixed(0)}° / ${d.airMinF.toFixed(0)}° air</div>`:''}
+              <div class="day-gdd">⟁ ${(gddMode==='air'?(d.airGDD??d.soilGDD):d.soilGDD).toFixed(1)} GDD</div>
+              <div class="day-unit">°F</div>
+            </div>`).join('')}
+        </div>
+        <div class="chart-wrap"><canvas id="historyChart" height="200"></canvas></div>
+      </div>
+      <div class="section">
+        <div class="section-header gdd-header">
+          <span class="section-title">Cumulative GDD — ${year}</span>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <span class="section-sub">Jan 1 → +45 days · ${gddMode} temp · base ${baseTempF}°F</span>
+            <span class="forecast-badge">▸ 45-day forecast</span>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="gddChart" height="220"></canvas></div>
+      </div>
+      <div class="section">
+        <div class="section-header rain-header">
+          <span class="section-title">Rainfall — Last 7 Days + 5-Day Forecast</span>
+          <span class="section-sub">Inches · Observed + Predicted</span>
+        </div>
+        <div class="info-note rain-note">ℹ &nbsp;<strong>Darker bars</strong> = observed rainfall &nbsp;·&nbsp; <strong>Lighter bars</strong> = forecast</div>
+        <div class="chart-wrap"><canvas id="rainChart" height="200"></canvas></div>
+      </div>`;
+
+    document.getElementById('timestamp').textContent =
+      `// fetched ${new Date().toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit'})} ET`;
+
+    hourlyChart = new Chart(document.getElementById('todayChart'), {
+      type:'line',
+      data:{ labels:todayLabels, datasets:[{ label:'Soil Temp °F (6cm)', data:todaySoilF, borderColor:'#c4622d', backgroundColor:'rgba(196,98,45,0.12)', borderWidth:2.5, pointRadius:2, pointHoverRadius:5, pointBackgroundColor:'#e07b42', fill:true, tension:0.4 }] },
+      options: tempChartOpts('Soil Temp')
+    });
+
+    const last5 = days.slice(-5);
+    historyChart = new Chart(document.getElementById('historyChart'), {
+      type:'line',
+      data:{ labels:last5.map(d=>d.label), datasets:[
+        { label:'Soil Max °F', data:last5.map(d=>cToF(d.soilMaxC)), borderColor:'#c4622d', backgroundColor:'rgba(196,98,45,0.08)', borderWidth:2, pointRadius:4, pointBackgroundColor:'#e07b42', fill:false, tension:0.35 },
+        { label:'Soil Min °F', data:last5.map(d=>cToF(d.soilMinC)), borderColor:'#e07b42', borderWidth:1.5, borderDash:[4,3], pointRadius:3, backgroundColor:'transparent', fill:false, tension:0.35 },
+        { label:'Air Max °F', data:last5.map(d=>d.hasAir?+d.airMaxF.toFixed(1):null), borderColor:'#8ab4c9', backgroundColor:'rgba(138,180,201,0.08)', borderWidth:2, pointRadius:4, pointBackgroundColor:'#8ab4c9', fill:false, tension:0.35 },
+        { label:'Air Min °F', data:last5.map(d=>d.hasAir?+d.airMinF.toFixed(1):null), borderColor:'#8ab4c9', borderWidth:1.5, borderDash:[4,3], pointRadius:3, backgroundColor:'transparent', fill:false, tension:0.35 },
+      ]},
+      options: tempChartOpts('Temperature')
+    });
+
+    const allLabels = [...gddDates.map(d=>shortLabel(d)), ...forecastDays.map(d=>d.label)];
+    const obsTGDD = [...tGDD, ...Array(forecastDays.length).fill(null)];
+    const bridge = tGDD.length ? tGDD[tGDD.length-1] : 0;
+    const fcBridged = [...Array(Math.max(0,tGDD.length-1)).fill(null), bridge, ...forecastTGDD];
+    const allDaily = [...gddDaily, ...forecastDays.map(d=>fmt1(d.predGDD))];
+    const fullTGDD = [...tGDD,...forecastTGDD];
+    const milestones=[]; let nextMs=100;
+    fullTGDD.forEach((v,i)=>{ if(v>=nextMs){ milestones.push({index:i,value:nextMs,isForecast:i>=tGDD.length}); nextMs+=100; } });
+
+    const msPlugin = {
+      id:'gddMs',
+      afterDatasetsDraw(chart) {
+        if (!milestones.length) return;
+        const om=chart.getDatasetMeta(0), fm=chart.getDatasetMeta(1), ctx=chart.ctx;
+        milestones.forEach(m => {
+          const pt = m.isForecast ? fm?.data[m.index] : om?.data[m.index];
+          if (!pt||isNaN(pt.x)||isNaN(pt.y)) return;
+          const {x,y}=pt, fc=m.isForecast;
+          ctx.save(); ctx.beginPath(); ctx.arc(x,y,5.5,0,Math.PI*2); ctx.fillStyle=fc?'rgba(130,190,230,0.9)':'#8ab85a'; ctx.strokeStyle='#2b1d0e'; ctx.lineWidth=2; ctx.fill(); ctx.stroke(); ctx.restore();
+          const ly=y<chart.chartArea.top+30?y+20:y-14, txt=`${m.value}${fc?'~':''}`;
+          ctx.save(); ctx.font='500 10px "DM Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          const tw=ctx.measureText(txt).width, pad=4;
+          ctx.fillStyle=fc?'rgba(10,20,35,0.85)':'rgba(20,30,10,0.82)';
+          ctx.beginPath(); ctx.roundRect(x-tw/2-pad,ly-8,tw+pad*2,16,3); ctx.fill();
+          ctx.fillStyle=fc?'rgba(130,190,230,0.95)':'#8ab85a'; ctx.fillText(txt,x,ly); ctx.restore();
+        });
+      }
+    };
+
+    gddChart = new Chart(document.getElementById('gddChart'),{
+      type:'line',
+      data:{ labels:allLabels, datasets:[
+        { label:`tGDD observed (base ${baseTempF}°F)`, data:obsTGDD, borderColor:'#6b8f3e', backgroundColor:'rgba(107,143,62,0.15)', borderWidth:2.5, pointRadius:0, pointHoverRadius:5, fill:true, tension:0.4 },
+        { label:'tGDD forecast', data:fcBridged, borderColor:'rgba(100,160,200,0.85)', backgroundColor:'rgba(100,160,200,0.07)', borderWidth:2, borderDash:[6,4], pointRadius:0, pointHoverRadius:5, fill:true, tension:0.4 },
+        { label:'Daily GDD', data:allDaily, borderColor:'rgba(138,184,90,0.45)', backgroundColor:'transparent', borderWidth:1.5, borderDash:[3,3], pointRadius:0, fill:false, tension:0.3 },
+      ]},
+      plugins:[msPlugin],
+      options: gddChartOpts()
+    });
+
+    const rainColors = rainData.map(r => r.isForecast ? 'rgba(122,184,245,0.5)' : 'rgba(91,155,213,0.85)');
+    const rainBorders = rainData.map(r => r.isForecast ? 'rgba(122,184,245,0.8)' : 'rgba(91,155,213,1)');
+    rainChart = new Chart(document.getElementById('rainChart'), {
+      type:'bar',
+      data:{ labels:rainData.map(r=>r.label), datasets:[{ label:'Rainfall (in)', data:rainData.map(r=>r.rain), backgroundColor:rainColors, borderColor:rainBorders, borderWidth:1.5, borderRadius:3 }]},
+      options:{
+        responsive:true,
+        plugins:{
+          legend:{labels:{color:'#a08060',font:{family:'DM Mono',size:10},boxWidth:12}},
+          tooltip:{backgroundColor:'rgba(10,20,40,0.95)',borderColor:'rgba(91,155,213,0.4)',borderWidth:1,titleColor:'#7ab8f5',bodyColor:'#f5ead8',titleFont:{family:'DM Mono',size:11},bodyFont:{family:'DM Mono',size:11},callbacks:{label:ctx=>` ${ctx.parsed.y.toFixed(2)} inches`,afterLabel:ctx=>rainData[ctx.dataIndex]?.isForecast?' (forecast)':' (observed)'}}
+        },
+        scales:{
+          x:{ticks:{color:'#5a7090',font:{family:'DM Mono',size:10},maxRotation:45},grid:{color:'rgba(255,255,255,0.03)'},border:{color:'rgba(91,155,213,0.2)'}},
+          y:{ticks:{color:'#5a7090',font:{family:'DM Mono',size:10},callback:v=>`${v}"`},grid:{color:'rgba(255,255,255,0.04)'},border:{color:'rgba(91,155,213,0.2)'},title:{display:true,text:'Rainfall (inches)',color:'#5a7090',font:{family:'DM Mono',size:10}},min:0}
+        }
+      }
+    });
+
+    const today = todayStr();
+    document.querySelectorAll('.day-card').forEach(c=>c.addEventListener('click',()=>selectDay(c.dataset.date,days)));
+    document.querySelector(`.day-card[data-date="${today}"]`)?.classList.add('selected');
+  }
+
+  function selectDay(dateStr, days) {
+    document.querySelectorAll('.day-card').forEach(c=>c.classList.remove('selected'));
+    document.querySelector(`.day-card[data-date="${dateStr}"]`)?.classList.add('selected');
+    const entries=(byDay[dateStr]||[]).slice().sort((a,b)=>a.h-b.h);
+    const info=days.find(d=>d.dateStr===dateStr);
+    const t=document.getElementById('hourlyTitle');
+    if(t&&info) t.textContent=info.label==='Today'?"Today's Soil Temperature":`${info.label} Soil Temperature`;
+    if(hourlyChart){
+      hourlyChart.data.labels=entries.map(e=>hourLabel(e.h));
+      hourlyChart.data.datasets[0].data=entries.map(e=>cToF(e.soilC));
+      hourlyChart.update('active');
+    }
+    document.getElementById('todayChart')?.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+
+  function tempChartOpts(yLabel='Temp') {
+    return {
+      responsive:true, interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{labels:{color:'#a08060',font:{family:'DM Mono',size:10},boxWidth:12}},
+        tooltip:{backgroundColor:'rgba(20,12,5,0.95)',borderColor:'rgba(196,98,45,0.4)',borderWidth:1,titleColor:'#e07b42',bodyColor:'#f5ead8',titleFont:{family:'DM Mono',size:11},bodyFont:{family:'DM Mono',size:11},callbacks:{label:ctx=>ctx.parsed.y!=null?` ${ctx.dataset.label}: ${ctx.parsed.y}°F`:null}}
+      },
+      scales:{
+        x:{ticks:{color:'#7a5c3e',font:{family:'DM Mono',size:10},maxRotation:45,maxTicksLimit:14},grid:{color:'rgba(255,255,255,0.04)'},border:{color:'rgba(196,98,45,0.2)'}},
+        y:{ticks:{color:'#7a5c3e',font:{family:'DM Mono',size:10},callback:v=>`${v}°F`},grid:{color:'rgba(255,255,255,0.04)'},border:{color:'rgba(196,98,45,0.2)'},title:{display:true,text:`${yLabel} (°F)`,color:'#7a5c3e',font:{family:'DM Mono',size:10}}}
+      }
+    };
+  }
+
+  function gddChartOpts() {
+    return {
+      responsive:true, interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{labels:{color:'#a08060',font:{family:'DM Mono',size:10},boxWidth:12}},
+        tooltip:{backgroundColor:'rgba(10,18,5,0.95)',borderColor:'rgba(107,143,62,0.45)',borderWidth:1,titleColor:'#8ab85a',bodyColor:'#f5ead8',titleFont:{family:'DM Mono',size:11},bodyFont:{family:'DM Mono',size:11},filter:i=>i.parsed.y!=null,callbacks:{label:ctx=>ctx.parsed.y!=null?` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} GDD`:null}}
+      },
+      scales:{
+        x:{ticks:{color:'#5a7040',font:{family:'DM Mono',size:10},maxRotation:45,maxTicksLimit:18},grid:{color:'rgba(255,255,255,0.03)'},border:{color:'rgba(107,143,62,0.25)'}},
+        y:{ticks:{color:'#5a7040',font:{family:'DM Mono',size:10},stepSize:100},grid:{color:ctx=>ctx.tick.value%100===0?'rgba(107,143,62,0.18)':'rgba(255,255,255,0.03)',lineWidth:ctx=>ctx.tick.value%100===0?1.5:1},border:{color:'rgba(107,143,62,0.25)'},title:{display:true,text:'Cumulative GDD',color:'#5a7040',font:{family:'DM Mono',size:10}}}
+      }
+    };
+  }
+
+  async function loadAndRender() {
+    showLoader(); cachedData = null;
+    try {
+      const bVal = parseFloat(document.getElementById('baseInput').value);
+      if (!isNaN(bVal)) baseTempF = bVal;
+      setProgress(10, '<span>Step 1/4</span> — Fetching soil temp & rainfall…');
+      let soilJson, airRainJson;
+      try {
+        [soilJson, airRainJson] = await Promise.all([
+          fetchSoilHourly(currentLat, currentLon),
+          fetchAirAndRain(currentLat, currentLon),
+        ]);
+      } catch(e) {
+        if (e.name==='AbortError') throw new Error('Request timed out. Please check your connection and try again.');
+        throw e;
+      }
+      const recentData = processRecent(soilJson, airRainJson);
+      if (recentData.currentSoilC == null) throw new Error('No temperature data found for this location.');
+      setProgress(30, '<span>Step 2/4</span> — Loading year-to-date archive…');
+      let yearJson;
+      try { yearJson = await fetchYearData(currentLat, currentLon); } catch(e) { yearJson=null; }
+      setProgress(60, '<span>Step 3/4</span> — Building 45-day forecast…');
+      let climMeans, recentArchive;
+      try {
+        [climMeans, recentArchive] = await Promise.all([
+          fetchClimatology(currentLat, currentLon),
+          fetchRecentArchive(currentLat, currentLon),
+        ]);
+      } catch(e) { climMeans=Array(45).fill(null); recentArchive=null; }
+      cachedData = {
+        recentData, yearJson,
+        forecastData: (yearData) => buildForecast(climMeans, recentArchive, yearData)
+      };
+      setProgress(90, '<span>Step 4/4</span> — Rendering…');
+      await new Promise(r=>setTimeout(r,200));
+      setProgress(100,'Done!');
+      await new Promise(r=>setTimeout(r,150));
+      renderAll(cachedData);
+    } catch(err) {
+      const isTimeout = err.name==='AbortError'||err.message.includes('timed out');
+      document.getElementById('app').innerHTML=`
+        <div class="error-box">⚠ <strong>${isTimeout?'Connection timed out':'Failed to load data'}</strong><br><br>
+        ${err.message}<br><br>${isTimeout?'The weather data service took too long to respond.':'Make sure you have an active internet connection.'}
+        <br><button class="retry-btn" onclick="loadAndRender()">↺ Try Again</button></div>`;
+      console.error('[Soil Temp App]', err);
+    }
+  }
+
+  loadAndRender();
+</script>
+</body>
+</html>
